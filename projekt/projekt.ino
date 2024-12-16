@@ -1,8 +1,20 @@
 #include "HardwareSerial.h"
 #include <math.h>
+#include "Wire.h"
+#include "I2C_MPU6886.h"
+
+I2C_MPU6886 imu(0x68, Wire1);
+
+#define PWM_A1 13
+#define PWM_A2 12
+#define PWM_B1 26
+#define PWM_B2 25
 // Constants for serial communication
 #define HEADER 0x54
 #define TOTAL_DATA_LENGTH 48
+
+static unsigned long Timer_read_IMU = 0;
+
 
 static const uint8_t CrcTable[] =
 {
@@ -32,7 +44,22 @@ static const uint8_t CrcTable[] =
 void setup() {
   Serial.begin(230400);
   Serial2.begin(230400, SERIAL_8N1, 16, 17);
-  
+  pinMode(PWM_A1, OUTPUT);
+  pinMode(PWM_A2, OUTPUT);
+  pinMode(PWM_B1, OUTPUT);
+  pinMode(PWM_B2, OUTPUT);
+
+  Serial.begin(115200);
+  while (!Serial);
+
+  Wire1.begin(22, 23);
+  if (imu.begin()) {
+    Serial.println("Failed to detect gyro sensor!");
+  } else {
+    Serial.printf("WhoAmI() = 0x%02x\n", imu.whoAmI());
+  }
+
+  Serial.print("Setup Done");
 }
 double constrainAngle(double x){
     x = fmod(x,360);
@@ -193,12 +220,44 @@ void read_lidar() {
 
 }
 
+void read_angle(float* roll, float* pitch){
+  float ax = 0;
+  float ay = 0;
+  float az = 0;
+  imu.getAccel(&ax, &ay, &az);
+  *roll = atan2(ay, sqrt(ax * ax + az * az)) * (180.0 / M_PI);
+  *pitch = atan2(-ax, sqrt(ay * ay + az * az)) * (180.0 / M_PI);
+}
 
+void drive_motor(int speed, int direction, int pin1, int pin2) {
+  
+  switch (direction) {
+    case 0:  //FORWARDS
+      analogWrite(pin1, speed);
+      analogWrite(pin2, 0);
+      break;
+    case 1:  //BACKWARDS
+      analogWrite(pin1, 0);
+      analogWrite(pin2, speed);
+      break;
+    default:
+      Serial.print("Function incorrectly used. drive_motor()");
+  }
+}
 
 
 // In the main loop, read the frame and process it
 void loop() {
-  
+  long currentTime = millis();
+  if(currentTime >= Timer_read_IMU)
+  {
+    float roll = 0;
+    float pitch = 0;
+    read_angle(&roll, &pitch);
+    Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
+    Timer_read_IMU = millis() + 1000;
+  }
+
   read_lidar();
   /*if (Serial2.available()) {
     uint8_t byte = Serial2.read();  // Read the byte from Serial2
