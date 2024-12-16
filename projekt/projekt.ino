@@ -259,6 +259,8 @@ void loop() {
   }
 
   read_lidar();
+
+  
   /*if (Serial2.available()) {
     uint8_t byte = Serial2.read();  // Read the byte from Serial2
     Serial.print("Received byte: ");
