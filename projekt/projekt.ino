@@ -78,10 +78,15 @@ double constrainAngle(double x){
   return x;
 }
 float calculateStep(double startangle, double endangle, int num_distances) {
-    // Ensure angles are within [0, 360)
+    // Normalize start and end angles to 0-360 range
+    startangle = constrainAngle(startangle);
+    endangle = constrainAngle(endangle);
 
-    // Calculate angular difference, accounting for wrapping
+    // Calculate angular difference (handling wrap-around at 360 degrees)
     double angular_diff = endangle - startangle;
+    if (angular_diff < 0) {
+        angular_diff += 360.0;  // Wrap-around
+    }
 
     // Calculate step size
     return angular_diff / (num_distances - 1);
@@ -104,7 +109,7 @@ void read_lidar() {
   uint16_t buffer[48];  // Buffer to hold data (adjust size based on your need)
 
   
-   if(Serial2.available()) {
+   
     uint8_t byte = Serial2.read();  // Read first byte
     
     if(bytes_read == 0){
@@ -151,8 +156,9 @@ void read_lidar() {
       for (int i = 0; i < data_length; i++) {
        //Serial.printf("byte:%d %d\n", i,data[i]);
       }
-      // Read the checksum byte
       
+      // Read the checksum byte
+     
 
       // Process the valid data from the buffer
 
@@ -167,7 +173,7 @@ void read_lidar() {
       startanglebytes[0] = data[4];
       startanglebytes[1] = data[5];
       startangle = (startanglebytes[1] << 8) | startanglebytes[0];
-
+      
       // Read distances (3 bytes per distance)
       int data_index = 6;  // Starting index for distance data in the buffer
       int num_distances = (data_length - 7) / 3; // 3 bytes per distance (LSB, MSB, confidence)
@@ -178,13 +184,13 @@ void read_lidar() {
         uint8_t confidence = data[data_index++];
         
         distance = (msb << 8) | lsb;  // Combine MSB and LSB to get the full distance value
-        distance = distance/10.0;
+        
         // Apply confidence threshold (example: only accept values with confidence > 150)
-        if (confidence < 180 || distance > 75) { // Retry reading this distance if confidence is low
+        if (confidence < 180 || distance > 750) { // Retry reading this distance if confidence is low
           buffer[i] = 0;
           continue;
         }
-
+        distance = distance/10.0;
         // Store the distance in the buffer or process it as needed
         buffer[i] = distance;
       }
@@ -200,8 +206,8 @@ void read_lidar() {
       timestampbytes[0] = data[data_index++];
       timestampbytes[1] = data[data_index++];
       timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
-      endangle = constrainAngle(endangle/100.0);
-      startangle = constrainAngle(startangle/ 100.0);
+      endangle = endangle/100.0;
+      startangle = startangle/ 100.0;
     
       
       
@@ -214,17 +220,16 @@ void read_lidar() {
         angle = startangle + step*i;
         
 
-        if(buffer[i] < 20 && 0 < angle && angle < 135){
-          turn_left(calculate_speed(buffer[i]));
-          Serial.printf("%f %d Left turn\n", angle, buffer[i]);
-        }
-        else if(buffer[i] < 20 && 225 < angle && angle < 320){
+        if(buffer[i] < 30 && 5 < angle && angle < 125){
           turn_right(calculate_speed(buffer[i]));
-          Serial.printf("%f %d Right turn \n", angle, buffer[i]);
+          Serial.printf("angle: %f distance: %d Right turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
+        }
+        else if(buffer[i] < 30 && 235 < angle && angle < 355){
+          turn_left(calculate_speed(buffer[i]));
+          Serial.printf("angle: %f distance: %d Left turn turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
         }
         else{
           go_straight(MAX_SPEED);
-          
         }
 
         //Serial.printf("Distance %d: %dcm, Angle: %.2f\n", i, buffer[i], angle);
@@ -233,8 +238,8 @@ void read_lidar() {
       // Optionally print or process other data fields
       //Serial.printf("Speed: %d, Start Angle: %d, End Angle: %d, Timestamp: %d angle: %f\n", speed, startangle, endangle, timestamp,angle);
       
-    }
   
+
 
 }
 
@@ -265,10 +270,11 @@ void drive_motor(int speed, int direction, int pin1, int pin2) {
 
 void turn_left(int speed){
   drive_motor(speed, 0,PWM_A1,PWM_A2);
-  
+  drive_motor(speed*0.75, 0,PWM_B1,PWM_B2);
 }
 void turn_right(int speed){
   drive_motor(speed, 0,PWM_B1,PWM_B2);
+  drive_motor(speed*0.75, 0,PWM_A1,PWM_A2);
 }
 void go_straight(int speed){
   turn_right(speed);//Uneven motors
@@ -285,7 +291,7 @@ void loop() {
     Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
     Timer_read_IMU = millis() + 1000;
   }*/
-
+  
   read_lidar();
   
   
