@@ -220,13 +220,13 @@ void read_lidar() {
         angle = startangle + step*i;
         
 
-        if(buffer[i] < 30 && 5 < angle && angle < 125){
+        if(buffer[i] < 30 && 250 < angle && angle < 355){
           turn_right(calculate_speed(buffer[i]));
-          Serial.printf("angle: %f distance: %d Right turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
-        }
-        else if(buffer[i] < 30 && 235 < angle && angle < 355){
-          turn_left(calculate_speed(buffer[i]));
           Serial.printf("angle: %f distance: %d Left turn turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
+        }
+        else if(buffer[i] < 30 && 5 < angle && angle < 125){
+          turn_left(calculate_speed(buffer[i]));
+          Serial.printf("angle: %f distance: %d Right turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
         }
         else{
           go_straight(MAX_SPEED);
