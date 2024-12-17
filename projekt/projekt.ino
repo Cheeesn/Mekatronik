@@ -4,18 +4,29 @@
 #include "I2C_MPU6886.h"
 
 I2C_MPU6886 imu(0x68, Wire1);
-
-#define PWM_A1 13
-#define PWM_A2 12
-#define PWM_B1 26
-#define PWM_B2 25
+float angle;
+uint16_t distance,speed;
+#define PWM_A1 13 // Right motor
+#define PWM_A2 12 // Right motor
+#define PWM_B1 26 //Left motor
+#define PWM_B2 25 // Left motor
 // Constants for serial communication
 #define HEADER 0x54
 #define TOTAL_DATA_LENGTH 48
 
 static unsigned long Timer_read_IMU = 0;
 
+#define MAX_SPEED 250
+#define MIN_SPEED 100
+#define MAX_DISTANCE 30  // Maximum distance to consider speed adjustments
 
+int calculate_speed(uint16_t distance) {
+  if (distance > MAX_DISTANCE) return MAX_SPEED;  // No obstacle, full speed
+  
+  // Linearly scale speed based on distance
+  int speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (distance / (float)MAX_DISTANCE);
+  return constrain(speed, MIN_SPEED, MAX_SPEED);
+}
 static const uint8_t CrcTable[] =
 {
 0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3,
@@ -49,7 +60,7 @@ void setup() {
   pinMode(PWM_B1, OUTPUT);
   pinMode(PWM_B2, OUTPUT);
 
-  Serial.begin(115200);
+  
   while (!Serial);
 
   Wire1.begin(22, 23);
@@ -62,18 +73,15 @@ void setup() {
   Serial.print("Setup Done");
 }
 double constrainAngle(double x){
-    x = fmod(x,360);
-    if (x < 0)
-        x += 360;
-    return x;
+   x = fmod(x, 360.0);  // Wrap within 0 to 360
+    if (x < 0) x += 360.0;
+  return x;
 }
 float calculateStep(double startangle, double endangle, int num_distances) {
     // Ensure angles are within [0, 360)
-    startangle = constrainAngle(startangle);
-    endangle = constrainAngle(endangle);
 
     // Calculate angular difference, accounting for wrapping
-    double angular_diff = constrainAngle(endangle - startangle);
+    double angular_diff = endangle - startangle;
 
     // Calculate step size
     return angular_diff / (num_distances - 1);
@@ -92,7 +100,7 @@ void read_lidar() {
   static uint8_t data[48];
   static uint8_t bytes_read = 0;
   uint8_t data_length, cs, calculated_crc;
-  uint16_t speed, startangle, endangle, timestamp, distance;
+  uint16_t speed, startangle, endangle, timestamp;
   uint16_t buffer[48];  // Buffer to hold data (adjust size based on your need)
 
   
@@ -172,7 +180,7 @@ void read_lidar() {
         distance = (msb << 8) | lsb;  // Combine MSB and LSB to get the full distance value
         distance = distance/10.0;
         // Apply confidence threshold (example: only accept values with confidence > 150)
-        if (confidence < 180 || distance > 1200) { // Retry reading this distance if confidence is low
+        if (confidence < 180 || distance > 75) { // Retry reading this distance if confidence is low
           buffer[i] = 0;
           continue;
         }
@@ -192,29 +200,39 @@ void read_lidar() {
       timestampbytes[0] = data[data_index++];
       timestampbytes[1] = data[data_index++];
       timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
-      endangle = endangle/100.0;
-      startangle = startangle/ 100.0;
-      if(endangle > 360){
-        endangle -= 360;
-      }
-      if(startangle > 360){
-        startangle -= 360;
-      }
+      endangle = constrainAngle(endangle/100.0);
+      startangle = constrainAngle(startangle/ 100.0);
+    
       
       
       double step = calculateStep(startangle, endangle, num_distances);
       
       for (int i = 0; i < num_distances; i++) {
-        if(buffer[i] == 0){
+        if(buffer[i] == 0 || buffer[i] > 75){
           continue;
         }
-        float angle = startangle + step*i;
-        Serial.printf("Distance %d: %dcm, Angle: %.2f\n", i, buffer[i], angle);
+        angle = startangle + step*i;
+        
+
+        if(buffer[i] < 20 && 0 < angle && angle < 135){
+          turn_left(calculate_speed(buffer[i]));
+          Serial.printf("%f %d Left turn\n", angle, buffer[i]);
+        }
+        else if(buffer[i] < 20 && 225 < angle && angle < 320){
+          turn_right(calculate_speed(buffer[i]));
+          Serial.printf("%f %d Right turn \n", angle, buffer[i]);
+        }
+        else{
+          go_straight(MAX_SPEED);
+          
+        }
+
+        //Serial.printf("Distance %d: %dcm, Angle: %.2f\n", i, buffer[i], angle);
       }
 
       // Optionally print or process other data fields
-      Serial.printf("Speed: %d, Start Angle: %d, End Angle: %d, Timestamp: %d\n", speed, startangle, endangle, timestamp);
-      delay(1000);
+      //Serial.printf("Speed: %d, Start Angle: %d, End Angle: %d, Timestamp: %d angle: %f\n", speed, startangle, endangle, timestamp,angle);
+      
     }
   
 
@@ -245,29 +263,32 @@ void drive_motor(int speed, int direction, int pin1, int pin2) {
   }
 }
 
-
+void turn_left(int speed){
+  drive_motor(speed, 0,PWM_A1,PWM_A2);
+  
+}
+void turn_right(int speed){
+  drive_motor(speed, 0,PWM_B1,PWM_B2);
+}
+void go_straight(int speed){
+  turn_right(speed);//Uneven motors
+  turn_left(speed*0.9);
+}
 // In the main loop, read the frame and process it
 void loop() {
   long currentTime = millis();
-  if(currentTime >= Timer_read_IMU)
+  /*if(currentTime >= Timer_read_IMU)
   {
     float roll = 0;
     float pitch = 0;
     read_angle(&roll, &pitch);
     Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
     Timer_read_IMU = millis() + 1000;
-  }
+  }*/
 
   read_lidar();
-
   
-  /*if (Serial2.available()) {
-    uint8_t byte = Serial2.read();  // Read the byte from Serial2
-    Serial.print("Received byte: ");
-    Serial.println(byte, HEX);  // Print the byte in hexadecimal format
-  } else {
-    Serial.println("Waiting for data...");
-    delay(500);  // Wait for 500ms to avoid flooding the serial monitor
-  }*/
+  
+  
 
 }
