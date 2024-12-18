@@ -72,24 +72,22 @@ void setup() {
 
   Serial.print("Setup Done");
 }
-double constrainAngle(double x){
-   x = fmod(x, 360.0);  // Wrap within 0 to 360
-    if (x < 0) x += 360.0;
+float constrainAngle(float x){
+  x = fmod(x,360);
+  if (x < 0)
+      x += 360;
   return x;
 }
-float calculateStep(double startangle, double endangle, int num_distances) {
-    // Normalize start and end angles to 0-360 range
-    startangle = constrainAngle(startangle);
-    endangle = constrainAngle(endangle);
 
-    // Calculate angular difference (handling wrap-around at 360 degrees)
-    double angular_diff = endangle - startangle;
-    if (angular_diff < 0) {
-        angular_diff += 360.0;  // Wrap-around
-    }
+float calculateStep(float startangle, float endangle, int num_distances) {
+  // Calculate angular difference (handling wrap-around at 360 degrees)
+  float angular_diff = endangle - startangle;
+  if (angular_diff < 0) {
+      angular_diff += 360.0;  // Wrap-around
+  }
 
-    // Calculate step size
-    return angular_diff / (num_distances - 1);
+  // Calculate step size
+  return angular_diff / (num_distances - 1);
 }
 uint8_t CalCRC8(uint8_t *p, uint8_t len)
 {
@@ -112,10 +110,13 @@ void read_lidar() {
   
   if(bytes_read == 0){
     if (byte == HEADER) {
-    // Read the data length byte
-    data[bytes_read++] = byte;
+      // Read the data length byte
+      data[bytes_read++] = byte;
     }
-    
+    else
+    {
+      return;
+    }
   }
   else if(bytes_read==1){
     if(byte == 0x2c){
@@ -152,7 +153,7 @@ void read_lidar() {
     data[i] = Serial2.read();
   }
   for (int i = 0; i < data_length; i++) {
-    //Serial.printf("byte:%d %d\n", i,data[i]);
+    //Serial.printf("byte:%d %x\n", i,data[i]);
   }
 
   // Read speed (2 bytes)
@@ -199,8 +200,6 @@ void read_lidar() {
   timestampbytes[0] = data[data_index++];
   timestampbytes[1] = data[data_index++];
   timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
-  endangle = endangle/100.0;
-  startangle = startangle/ 100.0;
 
   double step = calculateStep(startangle, endangle, num_distances);
   
@@ -208,26 +207,24 @@ void read_lidar() {
     if(buffer[i] == 0 || buffer[i] > 75){
       continue;
     }
-    angle = startangle + step*i;
+    angle = constrainAngle(startangle + step*i);
     
 
     if(buffer[i] < 30 && 15 < angle && angle < 125){
       turn_left(calculate_speed(buffer[i]));
-      Serial.printf("angle: %f distance: %d Left turn turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
+      //Serial.printf("angle: %f distance: %d Left turn turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
     }
     else if(buffer[i] < 30 && 230 < angle && angle < 350){
       turn_right(calculate_speed(buffer[i]));
-      Serial.printf("angle: %f distance: %d Right turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
+      //Serial.printf("angle: %f distance: %d Right turn Startangle: %d Endangle: %d \n ", angle, buffer[i], startangle, endangle);
     }
     else{
       go_straight(MAX_SPEED);
     }
-
-    //Serial.printf("Distance %d: %dcm, Angle: %.2f\n", i, buffer[i], angle);
+    Serial.printf("i: %d angle: %f distance: %d startangle: %d endangle: %d\n", i, angle, buffer[i], startangle, endangle);
   }
 
   // Optionally print or process other data fields
-  //Serial.printf("Speed: %d, Start Angle: %d, End Angle: %d, Timestamp: %d angle: %f\n", speed, startangle, endangle, timestamp,angle);
 }
 
 void read_angle(float* roll, float* pitch){
