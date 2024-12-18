@@ -93,8 +93,6 @@ float calculateStep(float startangle, float endangle, int num_distances) {
 uint8_t CalCRC8(uint8_t *p, uint8_t len)
 {
  uint8_t crc = 0;
- 
-
   for (int i = 0; i < len; i++){
   crc = CrcTable[(crc ^ *(p++)) & 0xff];
   }
@@ -106,9 +104,10 @@ void read_lidar() {
   uint8_t data_length, cs, calculated_crc;
   uint16_t speed, startangle, endangle, timestamp;
   uint16_t buffer[48];  // Buffer to hold data (adjust size based on your need)
+  static bool flag_checksum_checked = false;
 
-  uint8_t byte = Serial2.read();  // Read first byte
   
+  uint8_t byte = Serial2.read();
   if(bytes_read == 0){
     if (byte == HEADER) {
       // Read the data length byte
@@ -116,6 +115,7 @@ void read_lidar() {
     }
     else
     {
+      bytes_read = 0;
       return;
     }
   }
@@ -129,25 +129,23 @@ void read_lidar() {
     }
   }
   else if(bytes_read < 47) {
-      data[bytes_read++]  = byte; 
-      Serial.printf("%d %x \n", bytes_read, byte);
+    data[bytes_read++] = byte;
   }
-  else if(bytes_read == 47){
+  else if(bytes_read == 47 && flag_checksum_checked == false){
     cs = data[data_length-1];
-    data[0] = HEADER;  // Store the header in the first byte
-    data[1] = 0x2C;
-    
     // Calculate the CRC for the data (excluding the checksum byte)
     calculated_crc = CalCRC8(data, data_length - 1);
-
+    Serial.println("frame");
     // Compare the calculated CRC with the received checksum
     if (calculated_crc != cs) {
       Serial.println("CRC mismatch! Skipping frame.");
       return; // Skip frame if CRC mismatch
     }
-  }  
-  bytes_read = 0;
-
+    flag_checksum_checked = true;
+  }
+  else{
+    flag_checksum_checked = false;
+    bytes_read = 0;
     for (int i = 0; i < data_length; i++) {
       //Serial.printf("byte:%d %x\n", i,data[i]);
     }
@@ -166,22 +164,22 @@ void read_lidar() {
     
     // Read distances (3 bytes per distance)
     int data_index = 6;  // Starting index for distance data in the buffer
-    int num_distances = (data_length - 7) / 3; // 3 bytes per distance (LSB, MSB, confidence)
+    int num_distances = (data_length - data_index) / 3; // 3 bytes per distance (LSB, MSB, confidence)
 
     for (int i = 0; i < num_distances; i++) {
-      uint16_t lsb = data[data_index++];
-      uint16_t msb = data[data_index++];
+      uint8_t lsb = data[data_index++];
+      uint8_t msb = data[data_index++];
       uint8_t confidence = data[data_index++];
       
       distance = (msb << 8) | lsb;  // Combine MSB and LSB to get the full distance value
-      
       // Apply confidence threshold (example: only accept values with confidence > 150)
       if (confidence < 200 || distance > 750) { // Retry reading this distance if confidence is low
         buffer[i] = 0;
         continue;
       }
-      distance = distance/10.0;
+      //distance = distance/10.0;
       // Store the distance in the buffer or process it as needed
+      Serial.printf("distance %d\n", distance);
       buffer[i] = distance;
     }
 
@@ -197,16 +195,17 @@ void read_lidar() {
     timestampbytes[1] = data[data_index++];
     timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
 
-    double step = calculateStep(startangle, endangle, num_distances);
-    
+    float step = calculateStep(startangle, endangle, num_distances);
     for (int i = 0; i < num_distances; i++) {
-      if(buffer[i] == 0 || buffer[i] > 75){
+      if(buffer[i] == 0 || buffer[i] > 750){
         continue;
       }
-      angle = constrainAngle(startangle + step*i);
+      float temp = startangle + step*i;
+      angle = constrainAngle(temp);
       
-      //Serial.printf("startangle %d endangle %d num %d\n"startangle, endangle, num_distance);
+      //Serial.printf("startangle %d endangle %d num %d\n", startangle, endangle, num_distance);
       Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
+
       if(buffer[i] < 40 && 45 < angle && angle < 135){
         distanceright = buffer[i];
         
@@ -220,10 +219,7 @@ void read_lidar() {
 
       //Serial.printf("i: %d angle: %f distance: %d startangle: %d endangle: %d\n", i, angle, buffer[i], startangle, endangle);
     }
-    
-  
-  
-  // Optionally print or process other data fields
+  }
 }
 
 void read_angle(float* roll, float* pitch){
