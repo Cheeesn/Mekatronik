@@ -83,10 +83,6 @@ float constrainAngle(float x){
 float calculateStep(float startangle, float endangle, int num_distances) {
   // Calculate angular difference (handling wrap-around at 360 degrees)
   float angular_diff = endangle - startangle;
-  if (angular_diff < 0) {
-      angular_diff += 360.0;  // Wrap-around
-  }
-
   // Calculate step size
   return angular_diff / (num_distances - 1);
 }
@@ -130,23 +126,24 @@ void read_lidar() {
   }
   else if(bytes_read < 47) {
       data[bytes_read++]  = byte; 
-      Serial.printf("%d %x \n", bytes_read, byte);
+      
   }
   else if(bytes_read == 47){
     cs = data[data_length-1];
-    data[0] = HEADER;  // Store the header in the first byte
-    data[1] = 0x2C;
-    
+
+    bytes_read = 0;
     // Calculate the CRC for the data (excluding the checksum byte)
     calculated_crc = CalCRC8(data, data_length - 1);
 
     // Compare the calculated CRC with the received checksum
     if (calculated_crc != cs) {
       Serial.println("CRC mismatch! Skipping frame.");
+      
       return; // Skip frame if CRC mismatch
     }
+    
   }  
-  bytes_read = 0;
+  
 
     for (int i = 0; i < data_length; i++) {
       //Serial.printf("byte:%d %x\n", i,data[i]);
@@ -166,7 +163,7 @@ void read_lidar() {
     
     // Read distances (3 bytes per distance)
     int data_index = 6;  // Starting index for distance data in the buffer
-    int num_distances = (data_length - 7) / 3; // 3 bytes per distance (LSB, MSB, confidence)
+    int num_distances = (data_length - 6) / 3; // 3 bytes per distance (LSB, MSB, confidence)
 
     for (int i = 0; i < num_distances; i++) {
       uint16_t lsb = data[data_index++];
@@ -205,7 +202,7 @@ void read_lidar() {
       }
       angle = constrainAngle(startangle + step*i);
       
-      //Serial.printf("startangle %d endangle %d num %d\n"startangle, endangle, num_distance);
+      Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
       Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
       if(buffer[i] < 40 && 45 < angle && angle < 135){
         distanceright = buffer[i];
