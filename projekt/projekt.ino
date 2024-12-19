@@ -6,7 +6,7 @@
 I2C_MPU6886 imu(0x68, Wire1);
 float angle;
 uint16_t distance,speed;
-uint16_t distanceleft,distanceright;
+volatile uint16_t distanceleft,distanceright;
 #define PWM_A1 13 // Right motor
 #define PWM_A2 12 // Right motor
 #define PWM_B1 26 //Left motor
@@ -102,7 +102,7 @@ void read_lidar() {
   uint8_t data_length, cs, calculated_crc;
   uint16_t speed, startangle, endangle, timestamp;
   uint16_t buffer[48];  // Buffer to hold data (adjust size based on your need)
-
+  float endangle_f, startangle_f;
   uint8_t byte = Serial2.read();  // Read first byte
   
   if(bytes_read == 0){
@@ -126,7 +126,7 @@ void read_lidar() {
   }
   else if(bytes_read < 47) {
       data[bytes_read++]  = byte; 
-      
+      return;
   }
   else if(bytes_read == 47){
     cs = data[data_length-1];
@@ -193,25 +193,28 @@ void read_lidar() {
     timestampbytes[0] = data[data_index++];
     timestampbytes[1] = data[data_index++];
     timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
-
-    double step = calculateStep(startangle, endangle, num_distances);
+    endangle_f = endangle / 100.0;
+    startangle_f = startangle/100.0;
+    double step = calculateStep(startangle_f, endangle_f, num_distances);
     
     for (int i = 0; i < num_distances; i++) {
       if(buffer[i] == 0 || buffer[i] > 75){
         continue;
       }
-      angle = constrainAngle(startangle + step*i);
+      angle = startangle_f + step*i;
       
-      Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
-      Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
-      if(buffer[i] < 40 && 45 < angle && angle < 135){
-        distanceright = buffer[i];
-        
+      //Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
+      //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
+      if(buffer[i] < 25 && 45 < angle && angle < 135){
+        if(buffer[i] >= distanceright){
+          distanceright = buffer[i];
+        }
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
-      else if(buffer[i] < 40 && 225 < angle && angle < 315){
-        distanceleft = buffer[i];
-        
+      else if(buffer[i] < 25 && 225 < angle && angle < 315){
+        if(buffer[i] >= distanceleft){
+          distanceleft = buffer[i];
+        }
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
       }
 
@@ -274,16 +277,22 @@ void loop() {
   
   read_lidar();
   if(distanceleft < distanceright){
+   
     turn_right(MAX_SPEED);
-    //Serial.println("right turn");
+    Serial.printf("left: %d right: %d ", distanceleft, distanceright);
+   Serial.println("right turn");
   }
   else if(distanceleft > distanceright){
+    
     turn_left(MAX_SPEED);
-    //Serial.println("left_turn");
+    Serial.printf("left: %d right: %d ", distanceleft, distanceright);
+   Serial.println("left_turn");
   }
   else{
+    distanceright = 0;
+    distanceleft = 0;
     go_straight(MAX_SPEED);
-    //Serial.printf("straight %d %d\n", distanceleft, distanceright);
+   Serial.printf("straight %d %d\n", distanceleft, distanceright);
   }
   
   
