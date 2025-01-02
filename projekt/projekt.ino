@@ -14,19 +14,21 @@ uint16_t distance,speed;
 #define HEADER 0x54
 #define TOTAL_DATA_LENGTH 48
 
-static unsigned long Timer_read_IMU = 0;
-
-#define MAX_SPEED 250
-#define MIN_SPEED 100
+#define MAX_SPEED 150
+#define MIN_SPEED 10
 #define MAX_DISTANCE 30  // Maximum distance to consider speed adjustments
 #define THRESHOLD 10
 
+volatile uint8_t buffer_ready = 0;
 
 #define BUFFER_SIZE 20 
 uint16_t buff_left[BUFFER_SIZE] = {0};
 int buff_index_left = 0;
 uint16_t buff_right[BUFFER_SIZE] = {0};
 int buff_index_right = 0;
+
+volatile uint8_t data[48];
+volatile uint8_t bytes_read = 0;
 
 int calculate_speed(uint16_t distance) {
   if (distance > MAX_DISTANCE) return MAX_SPEED;  // No obstacle, full speed
@@ -61,9 +63,24 @@ static const uint8_t CrcTable[] =
 0x5a, 0x06, 0x4b, 0x9c, 0xd1, 0x7f, 0x32, 0xe5, 0xa8
 };
 
+volatile size_t sent_bytes = 0, received_bytes = 0;
+
+// void onReceiveFunction(void) {
+//   // This is a callback function that will be activated on UART RX events
+//   size_t available = Serial2.available();
+//   received_bytes = received_bytes + available;
+//   Serial.printf("onReceive Callback:: There are %d bytes available: ", available);
+//   while (available--) {
+//     read_lidar();
+//   }
+//   Serial.println();
+// }
+
 void setup() {
   Serial.begin(230400);
   Serial2.begin(230400, SERIAL_8N1, 16, 17);
+  //Serial2.onReceive(onReceiveFunction, false);  // sets a RX callback function for Serial 1
+
   pinMode(PWM_A1, OUTPUT);
   pinMode(PWM_A2, OUTPUT);
   pinMode(PWM_B1, OUTPUT);
@@ -78,6 +95,7 @@ void setup() {
   } else {
     Serial.printf("WhoAmI() = 0x%02x\n", imu.whoAmI());
   }
+
 
   Serial.print("Setup Done");
 }
@@ -94,7 +112,7 @@ float calculateStep(float startangle, float endangle, int num_distances) {
   // Calculate step size
   return angular_diff / (num_distances - 1);
 }
-uint8_t CalCRC8(uint8_t *p, uint8_t len)
+uint8_t CalCRC8(volatile uint8_t *p, uint8_t len)
 {
  uint8_t crc = 0;
  
@@ -104,9 +122,8 @@ uint8_t CalCRC8(uint8_t *p, uint8_t len)
   }
   return crc;
 }
+
 void read_lidar() {
-  static uint8_t data[48];
-  static uint8_t bytes_read = 0;
   uint8_t data_length, cs, calculated_crc;
   uint16_t speed, startangle, endangle, timestamp;
   uint16_t buffer[48];  // Buffer to hold data (adjust size based on your need)
@@ -120,6 +137,7 @@ void read_lidar() {
     }
     else
     {
+      bytes_read = 0;
       return;
     }
   }
@@ -133,8 +151,8 @@ void read_lidar() {
     }
   }
   else if(bytes_read < 47) {
-      data[bytes_read++]  = byte; 
-      return;
+    data[bytes_read++]  = byte; 
+    return;
   }
   else if(bytes_read == 47){
     cs = data[data_length-1];
@@ -145,13 +163,13 @@ void read_lidar() {
 
     // Compare the calculated CRC with the received checksum
     if (calculated_crc != cs) {
-      Serial.println("CRC mismatch! Skipping frame.");
+      //Serial.println("CRC mismatch!");
+      buffer_ready = 0;
       
       return; // Skip frame if CRC mismatch
     }
-    
+    buffer_ready = 1;
   }  
-  
 
     for (int i = 0; i < data_length; i++) {
       //Serial.printf("byte:%d %x\n", i,data[i]);
@@ -263,11 +281,11 @@ void drive_motor(int speed, int direction, int pin1, int pin2) {
 
 void turn_left(int speed){
   drive_motor(speed, 0,PWM_A1,PWM_A2);
-  drive_motor(speed*0.5, 0,PWM_B1,PWM_B2);
+  drive_motor(speed*0.65, 0,PWM_B1,PWM_B2);
 }
 void turn_right(int speed){
   drive_motor(speed, 0,PWM_B1,PWM_B2);
-  drive_motor(speed*0.5, 0,PWM_A1,PWM_A2);
+  drive_motor(speed*0.65, 0,PWM_A1,PWM_A2);
 }
 void go_straight(int speed){
   turn_right(speed);//Uneven motors
@@ -275,7 +293,6 @@ void go_straight(int speed){
 }
 // In the main loop, read the frame and process it
 void loop() {
-  long currentTime = millis();
   /*if(currentTime >= Timer_read_IMU)
   {
     float roll = 0;
@@ -284,29 +301,41 @@ void loop() {
     Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
     Timer_read_IMU = millis() + 1000;
   }*/
-  
+
   read_lidar();
 
+  if(buffer_ready){
+    static long Time_straight = 0;
+    static int last_turn = 0;
 
-  uint32_t sumleft = 0;
-  uint32_t sumright = 0;
-  for(uint32_t i = 0; i<BUFFER_SIZE; i++){
-    sumleft += buff_left[i];
-    sumright += buff_right[i];
-  }
+    uint32_t sumleft = 0;
+    uint32_t sumright = 0;
+    for(uint32_t i = 0; i<BUFFER_SIZE; i++){
+      sumleft += buff_left[i];
+      sumright += buff_right[i];
+    }
 
-  uint32_t distanceleft = sumleft / BUFFER_SIZE;
-  uint32_t distanceright = sumright / BUFFER_SIZE;
-  if(abs((int32_t)(distanceleft - distanceright)) <= THRESHOLD){
-    go_straight(MAX_SPEED);
-    Serial.printf("straight: left: %d right: %d\n", distanceleft, distanceright);
-  }
-  else if(distanceleft < distanceright){
-    turn_right(MAX_SPEED);
-    Serial.printf("right turn: left: %d right: %d\n", distanceleft, distanceright);
-  }
-  else if(distanceleft > distanceright){
-    turn_left(MAX_SPEED);
-    Serial.printf("left turn: left: %d right: %d\n", distanceleft, distanceright);
+    uint32_t distanceleft = sumleft / BUFFER_SIZE;
+    uint32_t distanceright = sumright / BUFFER_SIZE;
+
+
+    if(abs((int32_t)(distanceleft - distanceright)) >= THRESHOLD){
+      if(distanceleft < distanceright && last_turn != 0){
+        turn_right(MAX_SPEED);
+        Serial.printf("right turn: left: %d right: %d\n", distanceleft, distanceright);
+        last_turn = 0;
+      }
+      else if(distanceleft > distanceright && last_turn != 1){
+        turn_left(MAX_SPEED);
+        Serial.printf("left turn: left: %d right: %d\n", distanceleft, distanceright);
+        last_turn = 1;
+      }
+    }
+    else if(last_turn != 2)
+    {
+      go_straight(MAX_SPEED);
+      Serial.printf("straight: left: %d right: %d\n", distanceleft, distanceright);
+      last_turn = 2;
+    }
   }
 }
