@@ -14,14 +14,14 @@ uint16_t distance,speed;
 #define HEADER 0x54
 #define TOTAL_DATA_LENGTH 48
 
-#define MAX_SPEED 150
+#define MAX_SPEED 120
 #define MIN_SPEED 10
 #define MAX_DISTANCE 30  // Maximum distance to consider speed adjustments
 #define THRESHOLD 10
 
 volatile uint8_t buffer_ready = 0;
 
-#define BUFFER_SIZE 20 
+#define BUFFER_SIZE 14 
 uint16_t buff_left[BUFFER_SIZE] = {0};
 int buff_index_left = 0;
 uint16_t buff_right[BUFFER_SIZE] = {0};
@@ -34,7 +34,7 @@ int calculate_speed(uint16_t distance) {
   if (distance > MAX_DISTANCE) return MAX_SPEED;  // No obstacle, full speed
   
   // Linearly scale speed based on distance
-  int speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (distance / (float)MAX_DISTANCE);
+  int speed = MIN_SPEED + 2 * distance;
   return constrain(speed, MIN_SPEED, MAX_SPEED);
 }
 static const uint8_t CrcTable[] =
@@ -151,7 +151,7 @@ void read_lidar() {
     }
   }
   else if(bytes_read < 47) {
-    data[bytes_read++]  = byte; 
+    data[bytes_read++] = byte; 
     return;
   }
   else if(bytes_read == 47){
@@ -199,7 +199,7 @@ void read_lidar() {
       distance = (msb << 8) | lsb;  // Combine MSB and LSB to get the full distance value
       
       // Apply confidence threshold (example: only accept values with confidence > 150)
-      if (confidence < 200) { // Retry reading this distance if confidence is low
+      if (confidence < 200 || distance > 1200) { // Retry reading this distance if confidence is low
         buffer[i] = 0;
         continue;
       }
@@ -249,10 +249,6 @@ void read_lidar() {
           buff_index_left = 0;
         }
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
-      }
-      else
-      {
-         
       }
 
       //Serial.printf("i: %d angle: %f distance: %d startangle: %d endangle: %d\n", i, angle, buffer[i], startangle, endangle);
@@ -314,7 +310,6 @@ void loop() {
   read_lidar();
 
   if(buffer_ready){
-    static long Time_straight = 0;
     static int last_turn = 0;
 
     uint32_t sumleft = 0;
@@ -330,21 +325,28 @@ void loop() {
 
     if(abs((int32_t)(distanceleft - distanceright)) >= THRESHOLD){
       if(distanceleft < distanceright){
-        turn_right(calculate_speed(distanceright));
+        turn_right(MAX_SPEED);
         Serial.printf("right turn: left: %d right: %d\n", distanceleft, distanceright);
         last_turn = 0;
       }
       else if(distanceleft > distanceright){
-        turn_left(calculate_speed(distanceleft));
+        turn_left(MAX_SPEED);
         Serial.printf("left turn: left: %d right: %d\n", distanceleft, distanceright);
         last_turn = 1;
       }
     }
-    else
-    {
-      go_straight(abs((int32_t)(distanceleft - distanceright)));
+    else if(distanceleft > 10 && distanceright > 10){
+      go_straight(MAX_SPEED);
       Serial.printf("straight: left: %d right: %d\n", distanceleft, distanceright);
       last_turn = 2;
     }
+
+    delay(400);
+    go_straight(0);
+    Serial.printf("stop: left: %d right: %d\n", distanceleft, distanceright);
+    last_turn = 2;
+    delay(200);
+
+    buffer_ready = 0;
   }
 }
