@@ -199,7 +199,7 @@ void read_lidar() {
       distance = (msb << 8) | lsb;  // Combine MSB and LSB to get the full distance value
       
       // Apply confidence threshold (example: only accept values with confidence > 150)
-      if (confidence < 200 || distance > 750) { // Retry reading this distance if confidence is low
+      if (confidence < 200) { // Retry reading this distance if confidence is low
         buffer[i] = 0;
         continue;
       }
@@ -221,29 +221,38 @@ void read_lidar() {
     timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
     endangle_f = endangle / 100.0;
     startangle_f = startangle/100.0;
+    if ((startangle_f > 270 && startangle_f <= 90) && (endangle_f > 270 && endangle_f <= 90)) {
+        // The range is behind the radar, skip processing
+        return;
+    }
+
     double step = calculateStep(startangle_f, endangle_f, num_distances);
     
     for (int i = 0; i < num_distances; i++) {
-      if(buffer[i] == 0 || buffer[i] > 75){
+      if(buffer[i] == 0){
         continue;
       }
       angle = startangle_f + step*i;
       
       //Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
       //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
-      if(15 < angle && angle < 100){
+      if(15 < angle && angle < 105){
         buff_right[buff_index_right++] = buffer[i];
         if(buff_index_right == BUFFER_SIZE){
           buff_index_right = 0;
         }
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
-      else if(195 < angle && angle < 280){
+      else if(245 < angle && angle < 345){
         buff_left[buff_index_left++] = buffer[i];
         if(buff_index_left == BUFFER_SIZE){
           buff_index_left = 0;
         }
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
+      }
+      else
+      {
+         
       }
 
       //Serial.printf("i: %d angle: %f distance: %d startangle: %d endangle: %d\n", i, angle, buffer[i], startangle, endangle);
@@ -281,11 +290,11 @@ void drive_motor(int speed, int direction, int pin1, int pin2) {
 
 void turn_left(int speed){
   drive_motor(speed, 0,PWM_A1,PWM_A2);
-  drive_motor(speed*0.65, 0,PWM_B1,PWM_B2);
+  drive_motor(speed*0.6, 0,PWM_B1,PWM_B2);
 }
 void turn_right(int speed){
   drive_motor(speed, 0,PWM_B1,PWM_B2);
-  drive_motor(speed*0.65, 0,PWM_A1,PWM_A2);
+  drive_motor(speed*0.7, 0,PWM_A1,PWM_A2);
 }
 void go_straight(int speed){
   turn_right(speed);//Uneven motors
@@ -320,20 +329,20 @@ void loop() {
 
 
     if(abs((int32_t)(distanceleft - distanceright)) >= THRESHOLD){
-      if(distanceleft < distanceright && last_turn != 0){
-        turn_right(MAX_SPEED);
+      if(distanceleft < distanceright){
+        turn_right(calculate_speed(distanceright));
         Serial.printf("right turn: left: %d right: %d\n", distanceleft, distanceright);
         last_turn = 0;
       }
-      else if(distanceleft > distanceright && last_turn != 1){
-        turn_left(MAX_SPEED);
+      else if(distanceleft > distanceright){
+        turn_left(calculate_speed(distanceleft));
         Serial.printf("left turn: left: %d right: %d\n", distanceleft, distanceright);
         last_turn = 1;
       }
     }
-    else if(last_turn != 2)
+    else
     {
-      go_straight(MAX_SPEED);
+      go_straight(abs((int32_t)(distanceleft - distanceright)));
       Serial.printf("straight: left: %d right: %d\n", distanceleft, distanceright);
       last_turn = 2;
     }
