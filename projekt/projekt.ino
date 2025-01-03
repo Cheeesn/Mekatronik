@@ -6,6 +6,7 @@
 I2C_MPU6886 imu(0x68, Wire1);
 float angle;
 uint16_t distance,speed;
+
 #define PWM_A1 13 // Right motor
 #define PWM_A2 12 // Right motor
 #define PWM_B1 26 //Left motor
@@ -230,7 +231,9 @@ void read_lidar() {
     }
 
     double step = calculateStep(startangle_f, endangle_f, num_distances);
-    
+    buff_index_right = 0;
+    buff_index_left = 0;
+    buff_index_straight = 0;
     for (int i = 0; i < num_distances; i++) {
       if(buffer[i] == 0){
         continue;
@@ -241,22 +244,22 @@ void read_lidar() {
       //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
       if ((angle > 350 && angle <= 360) || (angle >= 0 && angle < 10)){
         buff_straight[buff_index_straight++] = buffer[i];
-        if(buff_index_straight == BUFFER_SIZE){
+        /*if(buff_index_straight == BUFFER_SIZE){
           buff_index_straight = 0;
-        }
+        }*/
       }
       else if(15 < angle && angle < 105){
         buff_right[buff_index_right++] = buffer[i];
-        if(buff_index_right == BUFFER_SIZE){
+        /*if(buff_index_right == BUFFER_SIZE){
           buff_index_right = 0;
-        }
+        }*/
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
       else if(245 < angle && angle < 345){
         buff_left[buff_index_left++] = buffer[i];
-        if(buff_index_left == BUFFER_SIZE){
+        /*if(buff_index_left == BUFFER_SIZE){
           buff_index_left = 0;
-        }
+        }*/
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
       }
 
@@ -335,9 +338,9 @@ void loop() {
       sumstraight += buff_straight[i];
     }
 
-    uint32_t distance_left = sumleft / BUFFER_SIZE;
-    uint32_t distance_right = sumright / BUFFER_SIZE;
-    uint32_t distance_straight = sumstraight / BUFFER_SIZE;
+    uint32_t distance_left = sumleft / buff_index_left;
+    uint32_t distance_right = sumright / buff_index_right;
+    uint32_t distance_straight = sumstraight / buff_index_straight;
 
     if(distance_straight < 2){
       go_backwards(MAX_SPEED);
