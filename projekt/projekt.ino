@@ -337,11 +337,13 @@ void loop() {
       sumright += buff_right[i];
       sumstraight += buff_straight[i];
     }
+    
+    uint32_t distance_left = sumleft / BUFFER_SIZE;
+    uint32_t distance_right = sumright / BUFFER_SIZE;
+    uint32_t distance_straight = sumstraight / BUFFER_SIZE;
 
-    uint32_t distance_left = sumleft / buff_index_left;
-    uint32_t distance_right = sumright / buff_index_right;
-    uint32_t distance_straight = sumstraight / buff_index_straight;
 
+<<<<<<< HEAD
     if(distance_straight < 2){
       go_backwards(MAX_SPEED);
       Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
@@ -351,19 +353,34 @@ void loop() {
       Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
       last_turn = 2;
     }
+=======
+>>>>>>> 5a162d6a0d73f720e2ce9a6f7046a1d62949ee40
     if(abs((int32_t)(distance_left - distance_right)) >= THRESHOLD){
       if(distance_left < distance_right){
         turn_right(MAX_SPEED);
+        memset(buff_right, 0 , sizeof(buff_right));
         Serial.printf("right turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
         last_turn = 0;
       }
       else if(distance_left > distance_right){
         turn_left(MAX_SPEED);
+        memset(buff_left, 0 , sizeof(buff_left));
         Serial.printf("left turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
         last_turn = 1;
       }
     }
-
+    // else if(distance_straight < 10){
+    //   go_backwards(MAX_SPEED);
+    //   memset(buff_straight, 0 , sizeof(buff_straight));
+    //   Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
+    // }
+    else if(distance_straight > 30){
+      go_straight(MAX_SPEED);
+      memset(buff_straight, 0 , sizeof(buff_straight));
+      Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
+      last_turn = 2;
+    }
+    
     delay(400);
     go_straight(0);
     Serial.println("stop:");
