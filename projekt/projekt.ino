@@ -34,12 +34,12 @@ int buff_index_straight = 0;
 volatile uint8_t data[48];
 volatile uint8_t bytes_read = 0;
 
-int calculate_speed(uint16_t distance) {
-  if (distance > MAX_DISTANCE) return MAX_SPEED;  // No obstacle, full speed
-  
-  // Linearly scale speed based on distance
-  int speed = MIN_SPEED + 2 * distance;
-  return constrain(speed, MIN_SPEED, MAX_SPEED);
+float calculate_effective_distance(uint16_t distance, float angle) {
+    float angle_offset = angle;
+    if (angle > 180) angle_offset -= 360; // Normalize angle to -180 to 180
+    float scale_factor = cos(radians(angle_offset)); // Scale based on cosine of angle
+    scale_factor = constrain(scale_factor, 0.5, 1.0); // Avoid overly small scaling
+    return distance * scale_factor;
 }
 static const uint8_t CrcTable[] =
 {
@@ -239,24 +239,24 @@ void read_lidar() {
         continue;
       }
       angle = startangle_f + step*i;
-      
+      float effective_distance = calculate_effective_distance(buffer[i], angle);
       //Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
       //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
       if ((angle > 350 && angle <= 360) || (angle >= 0 && angle < 10)){
-        buff_straight[buff_index_straight++] = buffer[i];
+        buff_straight[buff_index_straight++] = effective_distance;
         /*if(buff_index_straight == BUFFER_SIZE){
           buff_index_straight = 0;
         }*/
       }
       else if(15 < angle && angle < 105){
-        buff_right[buff_index_right++] = buffer[i];
+        buff_right[buff_index_right++] = effective_distance;
         /*if(buff_index_right == BUFFER_SIZE){
           buff_index_right = 0;
         }*/
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
       else if(245 < angle && angle < 345){
-        buff_left[buff_index_left++] = buffer[i];
+        buff_left[buff_index_left++] = effective_distance;
         /*if(buff_index_left == BUFFER_SIZE){
           buff_index_left = 0;
         }*/
@@ -351,7 +351,7 @@ void loop() {
       Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
       last_turn = 2;
     }
-    else if(abs((int32_t)(distance_left - distance_right)) >= THRESHOLD){
+    if(abs((int32_t)(distance_left - distance_right)) >= THRESHOLD){
       if(distance_left < distance_right){
         turn_right(MAX_SPEED);
         Serial.printf("right turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
