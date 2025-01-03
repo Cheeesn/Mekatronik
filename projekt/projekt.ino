@@ -20,7 +20,9 @@ uint16_t distance,speed;
 #define MAX_DISTANCE 30  // Maximum distance to consider speed adjustments
 #define THRESHOLD 20
 
-volatile uint8_t buffer_ready = 0;
+uint8_t buffer_left_ready = 0;
+uint8_t buffer_right_ready = 0;
+uint8_t buffer_straight_ready = 0;
 int last_turn = 0;
 
 #define BUFFER_SIZE 14 
@@ -167,11 +169,11 @@ void read_lidar() {
     // Compare the calculated CRC with the received checksum
     if (calculated_crc != cs) {
       //Serial.println("CRC mismatch!");
-      buffer_ready = 0;
+      //buffer_ready = 0;
       
       return; // Skip frame if CRC mismatch
     }
-    buffer_ready = 1;
+    //buffer_ready = 1;
   }  
 
     for (int i = 0; i < data_length; i++) {
@@ -230,9 +232,6 @@ void read_lidar() {
     }
 
     double step = calculateStep(startangle_f, endangle_f, num_distances);
-    buff_index_right = 0;
-    buff_index_left = 0;
-    buff_index_straight = 0;
     for (int i = 0; i < num_distances; i++) {
       if(buffer[i] == 0){
         continue;
@@ -243,22 +242,25 @@ void read_lidar() {
       //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
       if ((angle > 350 && angle <= 360) || (angle >= 0 && angle < 10)){
         buff_straight[buff_index_straight++] = effective_distance;
-        /*if(buff_index_straight == BUFFER_SIZE){
+        if(buff_index_straight == BUFFER_SIZE){
           buff_index_straight = 0;
-        }*/
+          buffer_straight_ready = 1;
+        }
       }
       else if(15 < angle && angle < 105){
         buff_right[buff_index_right++] = effective_distance;
-        /*if(buff_index_right == BUFFER_SIZE){
+        if(buff_index_right == BUFFER_SIZE){
           buff_index_right = 0;
-        }*/
+          buffer_right_ready = 1;
+        }
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
       else if(245 < angle && angle < 345){
         buff_left[buff_index_left++] = effective_distance;
-        /*if(buff_index_left == BUFFER_SIZE){
+        if(buff_index_left == BUFFER_SIZE){
           buff_index_left = 0;
-        }*/
+          buffer_left_ready = 1;
+        }
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
       }
 
@@ -325,8 +327,11 @@ void loop() {
 
   read_lidar();
 
-  if(buffer_ready){
-    buffer_ready = 0;
+  if(buffer_left_ready && buffer_right_ready){
+    //buffer_ready = 0;
+    buffer_left_ready = 0;
+    buffer_straight_ready = 0;
+    buffer_right_ready = 0;
 
     uint32_t sumleft = 0;
     uint32_t sumright = 0;
