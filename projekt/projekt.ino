@@ -251,16 +251,16 @@ void read_lidar() {
       }
       else if(15 < angle && angle < 105){
         buff_right[buff_index_right++] = effective_distance;
-        buffer_right_ready = 1;
         if(buff_index_right == BUFFER_SIZE){
           buff_index_right = 0;
+          buffer_right_ready = 1;
         }
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
       else if(245 < angle && angle < 345){
         buff_left[buff_index_left++] = effective_distance;
-        buffer_left_ready = 1;
         if(buff_index_left == BUFFER_SIZE){
+          buffer_left_ready = 1;
           buff_index_left = 0;
         }
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
