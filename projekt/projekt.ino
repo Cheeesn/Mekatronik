@@ -343,18 +343,6 @@ void loop() {
     uint32_t distance_straight = sumstraight / BUFFER_SIZE;
 
 
-<<<<<<< HEAD
-    if(distance_straight < 2){
-      go_backwards(MAX_SPEED);
-      Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-    }
-    else if(distance_straight > 50){
-      go_straight(MAX_SPEED);
-      Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-      last_turn = 2;
-    }
-=======
->>>>>>> 5a162d6a0d73f720e2ce9a6f7046a1d62949ee40
     if(abs((int32_t)(distance_left - distance_right)) >= THRESHOLD){
       if(distance_left < distance_right){
         turn_right(MAX_SPEED);
