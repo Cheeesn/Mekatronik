@@ -36,7 +36,6 @@ volatile uint8_t bytes_read = 0;
 
 float calculate_effective_distance(uint16_t distance, float angle) {
     float angle_offset = angle;
-    if (angle > 180) angle_offset -= 360; // Normalize angle to -180 to 180
     float scale_factor = cos(radians(angle_offset)); // Scale based on cosine of angle
     scale_factor = constrain(scale_factor, 0.5, 1.0); // Avoid overly small scaling
     return distance * scale_factor;
@@ -346,13 +345,11 @@ void loop() {
     if(abs((int32_t)(distance_left - distance_right)) >= THRESHOLD){
       if(distance_left < distance_right){
         turn_right(MAX_SPEED);
-        memset(buff_right, 0 , sizeof(buff_right));
         Serial.printf("right turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
         last_turn = 0;
       }
       else if(distance_left > distance_right){
         turn_left(MAX_SPEED);
-        memset(buff_left, 0 , sizeof(buff_left));
         Serial.printf("left turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
         last_turn = 1;
       }
@@ -364,7 +361,6 @@ void loop() {
     // }
     else if(distance_straight > 30){
       go_straight(MAX_SPEED);
-      memset(buff_straight, 0 , sizeof(buff_straight));
       Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
       last_turn = 2;
     }
