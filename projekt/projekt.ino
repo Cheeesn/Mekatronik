@@ -26,7 +26,7 @@ uint8_t buffer_right_ready = 0;
 uint8_t buffer_straight_ready = 0;
 int last_turn = 0;
 
-#define BUFFER_SIZE 14 
+#define BUFFER_SIZE 4
 uint16_t buff_left[BUFFER_SIZE] = {0};
 int buff_index_left = 0;
 uint16_t buff_right[BUFFER_SIZE] = {0};
@@ -166,101 +166,97 @@ void read_lidar() {
             return;  // Skip frame if CRC mismatch
         }
         Serial.println("CRC correct");
-        //OBS lägg funktion här process_frame flytta koden nedan in
-    }
-    for (int i = 0; i < data_length; i++) {
-      //Serial.printf("byte:%d %x\n", i,data[i]);
-    }
+        
+        //Read speed (2 bytes)
+        uint8_t speedbytes[2];
+        speedbytes[0] = data[0];
+        speedbytes[1] = data[1];
+        speed = (speedbytes[1] << 8) | speedbytes[0];  // Convert to speed value
 
-    // Read speed (2 bytes)
-    uint8_t speedbytes[2];
-    speedbytes[0] = data[2];
-    speedbytes[1] = data[3];
-    speed = (speedbytes[1] << 8) | speedbytes[0];  // Convert to speed value
+        // Read start angle (2 bytes)
+        uint8_t startanglebytes[2];
+        startanglebytes[0] = data[2];
+        startanglebytes[1] = data[3];
+        startangle = (startanglebytes[1] << 8) | startanglebytes[0];
+        
+        // Read distances (3 bytes per distance)
+        int data_index = 4;  // Starting index for distance data in the buffer
+        int num_distances = (data_length - 4) / 3; // 3 bytes per distance (LSB, MSB, confidence)
 
-    // Read start angle (2 bytes)
-    uint8_t startanglebytes[2];
-    startanglebytes[0] = data[4];
-    startanglebytes[1] = data[5];
-    startangle = (startanglebytes[1] << 8) | startanglebytes[0];
-    
-    // Read distances (3 bytes per distance)
-    int data_index = 6;  // Starting index for distance data in the buffer
-    int num_distances = (data_length - 6) / 3; // 3 bytes per distance (LSB, MSB, confidence)
-
-    for (int i = 0; i < num_distances; i++) {
-      uint16_t lsb = data[data_index++];
-      uint16_t msb = data[data_index++];
-      uint8_t confidence = data[data_index++];
-      
-      distance = (msb << 8) | lsb;  // Combine MSB and LSB to get the full distance value
-      
-      // Apply confidence threshold (example: only accept values with confidence > 150)
-      if (confidence < 200 || distance > 1200) { // Retry reading this distance if confidence is low
-        buffer[i] = 0;
-        continue;
-      }
-      distance = distance/10.0;
-      // Store the distance in the buffer or process it as needed
-      buffer[i] = distance;
-    }
-
-    // Read end angle (2 bytes)
-    uint8_t endanglebytes[2];
-    endanglebytes[0] = data[data_index++];
-    endanglebytes[1] = data[data_index++];
-    endangle = (endanglebytes[1] << 8) | endanglebytes[0];
-
-    // Read timestamp (2 bytes)
-    uint8_t timestampbytes[2];
-    timestampbytes[0] = data[data_index++];
-    timestampbytes[1] = data[data_index++];
-    timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
-    endangle_f = endangle / 100.0;
-    startangle_f = startangle/100.0;
-    if ((startangle_f > 270 && startangle_f <= 90) && (endangle_f > 270 && endangle_f <= 90)) {
-        // The range is behind the radar, skip processing
-        return;
-    }
-
-    double step = calculateStep(startangle_f, endangle_f, num_distances);
-    for (int i = 0; i < num_distances; i++) {
-      if(buffer[i] == 0){
-        continue;
-      }
-      angle = startangle_f + step*i;
-      float effective_distance = calculate_effective_distance(buffer[i]);
-      //Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
-      //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
-      if ((angle > 350 && angle <= 360) || (angle >= 0 && angle < 10)){
-        buff_straight[buff_index_straight++] = buffer[i];
-        buffer_straight_ready = 1;
-        if(buff_index_straight == BUFFER_SIZE){
-          buff_index_straight = 0;
+        for (int i = 0; i < num_distances; i++) {
+          uint16_t lsb = data[data_index++];
+          uint16_t msb = data[data_index++];
+          uint8_t confidence = data[data_index++];
+          
+          distance = ((msb << 8) | lsb)/10.0;  // Combine MSB and LSB to get the full distance value
+          
+          //Serial.printf("distance=%d;confidence=%d\n",distance, confidence);
+          // Apply confidence threshold (example: only accept values with confidence > 150)
+          if (confidence < 200 || distance > 120) { // Retry reading this distance if confidence is low
+            buffer[i] = 0;
+            continue;
+          }
+          // Store the distance in the buffer or process it as needed
+          buffer[i] = distance;
         }
-      }
-      else if(15 < angle && angle < 105){
-        buff_right[buff_index_right++] = effective_distance;
-        if(buff_index_right == BUFFER_SIZE){
-          buff_index_right = 0;
-          buffer_right_ready = 1;
-        }
-        //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
-      }
-      else if(245 < angle && angle < 345){
-        buff_left[buff_index_left++] = effective_distance;
-        if(buff_index_left == BUFFER_SIZE){
-          buffer_left_ready = 1;
-          buff_index_left = 0;
-        }
-        //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
-      }
 
-      //Serial.printf("i: %d angle: %f distance: %d startangle: %d endangle: %d\n", i, angle, buffer[i], startangle, endangle);
+        // Read end angle (2 bytes)
+        uint8_t endanglebytes[2];
+        endanglebytes[0] = data[data_index++];
+        endanglebytes[1] = data[data_index++];
+        endangle = (endanglebytes[1] << 8) | endanglebytes[0];
+
+        // Read timestamp (2 bytes)
+        uint8_t timestampbytes[2];
+        timestampbytes[0] = data[data_index++];
+        timestampbytes[1] = data[data_index++];
+        timestamp = (timestampbytes[1] << 8) | timestampbytes[0];
+        endangle_f = endangle / 100.0;
+        startangle_f = startangle/100.0;
+        endangle_f = constrainAngle(endangle_f);
+        startangle_f = constrainAngle(startangle_f);
+        if ((startangle_f > 270 && startangle_f <= 90) && (endangle_f > 270 && endangle_f <= 90)) {
+            // The range is behind the radar, skip processing
+            return;
+        }
+
+        //Serial.printf("startangle %f endangle %f num %d\n",startangle_f, endangle_f, num_distances);
+        double step = calculateStep(startangle_f, endangle_f, num_distances);
+        for (int i = 0; i < num_distances; i++) {
+          if(buffer[i] == 0){
+            continue;
+          }
+          angle = startangle_f + step*i;
+          //Serial.println(angle);
+          float effective_distance = calculate_effective_distance(buffer[i]);
+          //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
+          if ((angle > 350 && angle <= 360) || (angle >= 0 && angle < 10)){
+            buff_straight[buff_index_straight++] = buffer[i];
+            buffer_straight_ready = 1;
+            if(buff_index_straight == BUFFER_SIZE){
+              buff_index_straight = 0;
+            }
+          }
+          else if(15 < angle && angle < 105){
+            buff_right[buff_index_right++] = effective_distance;
+            if(buff_index_right == BUFFER_SIZE){
+              buff_index_right = 0;
+              buffer_right_ready = 1;
+            }
+            //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
+          }
+          else if(245 < angle && angle < 345){
+            buff_left[buff_index_left++] = effective_distance;
+            if(buff_index_left == BUFFER_SIZE){
+              buffer_left_ready = 1;
+              buff_index_left = 0;
+            }
+            //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
+          }
+
+        //Serial.printf("i: %d angle: %f distance: %d startangle: %d endangle: %d\n", i, angle, buffer[i], startangle, endangle);
+      }
     }
-    
-  
-  
   // Optionally print or process other data fields
 }
 
@@ -311,7 +307,6 @@ void loop() {
   static float roll = 0;
   static float pitch = 0;
   read_angle(&roll, &pitch);
-  //Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
 
   read_lidar();
   // if(pitch > 20){
@@ -369,20 +364,19 @@ void loop() {
       //   Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
       // }
       else if(distance_straight > 30){
-        if(pitch > 20){
-          go_straight(MAX_SPEED);
-          Serial.printf("We are going up\n");
-        }
-        else{
+        // if(pitch > 20){
+        //   go_straight(MAX_SPEED);
+        //   Serial.printf("We are going up\n");
+        // }
+        // else{
           go_straight(NORMAL_SPEED);
-        }
+        // }
         Serial.printf("STRAIGHT: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
         last_turn = 2;
       }
       
       delay(400);
       go_straight(0);
-      
     }
   //}
 }
