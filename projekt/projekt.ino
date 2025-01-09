@@ -13,14 +13,17 @@ uint16_t distance,speed;
 #define PWM_B2 25 // Left motor
 // Constants for serial communication
 #define HEADER 0x54
-#define TOTAL_DATA_LENGTH 48
+#define TOTAL_DATA_LENGTH 44
 
-#define MAX_SPEED 150
+#define MAX_SPEED 750
+#define NORMAL_SPEED 400
 #define MIN_SPEED 10
 #define MAX_DISTANCE 30  // Maximum distance to consider speed adjustments
 #define THRESHOLD 20
 
-volatile uint8_t buffer_ready = 0;
+uint8_t buffer_left_ready = 0;
+uint8_t buffer_right_ready = 0;
+uint8_t buffer_straight_ready = 0;
 int last_turn = 0;
 
 #define BUFFER_SIZE 14 
@@ -31,41 +34,40 @@ int buff_index_right = 0;
 uint16_t buff_straight[BUFFER_SIZE] = {0};
 int buff_index_straight = 0;
 
-volatile uint8_t data[48];
+uint8_t data[45];
 volatile uint8_t bytes_read = 0;
 
-float calculate_effective_distance(uint16_t distance, float angle) {
-    float angle_offset = angle;
-    if (angle > 180) angle_offset -= 360; // Normalize angle to -180 to 180
-    float scale_factor = cos(radians(angle_offset)); // Scale based on cosine of angle
-    scale_factor = constrain(scale_factor, 0.5, 1.0); // Avoid overly small scaling
-    return distance * scale_factor;
+float calculate_effective_distance(uint16_t distance) {
+  float angle_offset = angle;
+  float scale_factor = sin(fabs(radians(angle_offset))); // Symmetric scaling
+  scale_factor = constrain(scale_factor, 0.5, 1.0); // Avoid overly small scaling
+
+  return distance * scale_factor;
 }
-static const uint8_t CrcTable[] =
-{
-0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3,
-0xae, 0xf2, 0xbf, 0x68, 0x25, 0x8b, 0xc6, 0x11, 0x5c, 0xa9, 0xe4, 0x33,
-0x7e, 0xd0, 0x9d, 0x4a, 0x07, 0x5b, 0x16, 0xc1, 0x8c, 0x22, 0x6f, 0xb8,
-0xf5, 0x1f, 0x52, 0x85, 0xc8, 0x66, 0x2b, 0xfc, 0xb1, 0xed, 0xa0, 0x77,
-0x3a, 0x94, 0xd9, 0x0e, 0x43, 0xb6, 0xfb, 0x2c, 0x61, 0xcf, 0x82, 0x55,
-0x18, 0x44, 0x09, 0xde, 0x93, 0x3d, 0x70, 0xa7, 0xea, 0x3e, 0x73, 0xa4,
-0xe9, 0x47, 0x0a, 0xdd, 0x90, 0xcc, 0x81, 0x56, 0x1b, 0xb5, 0xf8, 0x2f,
-0x62, 0x97, 0xda, 0x0d, 0x40, 0xee, 0xa3, 0x74, 0x39, 0x65, 0x28, 0xff,
-0xb2, 0x1c, 0x51, 0x86, 0xcb, 0x21, 0x6c, 0xbb, 0xf6, 0x58, 0x15, 0xc2,
-0x8f, 0xd3, 0x9e, 0x49, 0x04, 0xaa, 0xe7, 0x30, 0x7d, 0x88, 0xc5, 0x12,
-0x5f, 0xf1, 0xbc, 0x6b, 0x26, 0x7a, 0x37, 0xe0, 0xad, 0x03, 0x4e, 0x99,
-0xd4, 0x7c, 0x31, 0xe6, 0xab, 0x05, 0x48, 0x9f, 0xd2, 0x8e, 0xc3, 0x14,
-0x59, 0xf7, 0xba, 0x6d, 0x20, 0xd5, 0x98, 0x4f, 0x02, 0xac, 0xe1, 0x36,
-0x7b, 0x27, 0x6a, 0xbd, 0xf0, 0x5e, 0x13, 0xc4, 0x89, 0x63, 0x2e, 0xf9,
-0xb4, 0x1a, 0x57, 0x80, 0xcd, 0x91, 0xdc, 0x0b, 0x46, 0xe8, 0xa5, 0x72,
-0x3f, 0xca, 0x87, 0x50, 0x1d, 0xb3, 0xfe, 0x29, 0x64, 0x38, 0x75, 0xa2,
-0xef, 0x41, 0x0c, 0xdb, 0x96, 0x42, 0x0f, 0xd8, 0x95, 0x3b, 0x76, 0xa1,
-0xec, 0xb0, 0xfd, 0x2a, 0x67, 0xc9, 0x84, 0x53, 0x1e, 0xeb, 0xa6, 0x71,
-0x3c, 0x92, 0xdf, 0x08, 0x45, 0x19, 0x54, 0x83, 0xce, 0x60, 0x2d, 0xfa,
-0xb7, 0x5d, 0x10, 0xc7, 0x8a, 0x24, 0x69, 0xbe, 0xf3, 0xaf, 0xe2, 0x35,
-0x78, 0xd6, 0x9b, 0x4c, 0x01, 0xf4, 0xb9, 0x6e, 0x23, 0x8d, 0xc0, 0x17,
-0x5a, 0x06, 0x4b, 0x9c, 0xd1, 0x7f, 0x32, 0xe5, 0xa8
-};
+
+static const uint8_t CrcTable[256] = {
+    0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3,
+    0xae, 0xf2, 0xbf, 0x68, 0x25, 0x8b, 0xc6, 0x11, 0x5c, 0xa9, 0xe4, 0x33,
+    0x7e, 0xd0, 0x9d, 0x4a, 0x07, 0x5b, 0x16, 0xc1, 0x8c, 0x22, 0x6f, 0xb8,
+    0xf5, 0x1f, 0x52, 0x85, 0xc8, 0x66, 0x2b, 0xfc, 0xb1, 0xed, 0xa0, 0x77,
+    0x3a, 0x94, 0xd9, 0x0e, 0x43, 0xb6, 0xfb, 0x2c, 0x61, 0xcf, 0x82, 0x55,
+    0x18, 0x44, 0x09, 0xde, 0x93, 0x3d, 0x70, 0xa7, 0xea, 0x3e, 0x73, 0xa4,
+    0xe9, 0x47, 0x0a, 0xdd, 0x90, 0xcc, 0x81, 0x56, 0x1b, 0xb5, 0xf8, 0x2f,
+    0x62, 0x97, 0xda, 0x0d, 0x40, 0xee, 0xa3, 0x74, 0x39, 0x65, 0x28, 0xff,
+    0xb2, 0x1c, 0x51, 0x86, 0xcb, 0x21, 0x6c, 0xbb, 0xf6, 0x58, 0x15, 0xc2,
+    0x8f, 0xd3, 0x9e, 0x49, 0x04, 0xaa, 0xe7, 0x30, 0x7d, 0x88, 0xc5, 0x12,
+    0x5f, 0xf1, 0xbc, 0x6b, 0x26, 0x7a, 0x37, 0xe0, 0xad, 0x03, 0x4e, 0x99,
+    0xd4, 0x7c, 0x31, 0xe6, 0xab, 0x05, 0x48, 0x9f, 0xd2, 0x8e, 0xc3, 0x14,
+    0x59, 0xf7, 0xba, 0x6d, 0x20, 0xd5, 0x98, 0x4f, 0x02, 0xac, 0xe1, 0x36,
+    0x7b, 0x27, 0x6a, 0xbd, 0xf0, 0x5e, 0x13, 0xc4, 0x89, 0x63, 0x2e, 0xf9,
+    0xb4, 0x1a, 0x57, 0x80, 0xcd, 0x91, 0xdc, 0x0b, 0x46, 0xe8, 0xa5, 0x72,
+    0x3f, 0xca, 0x87, 0x50, 0x1d, 0xb3, 0xfe, 0x29, 0x64, 0x38, 0x75, 0xa2,
+    0xef, 0x41, 0x0c, 0xdb, 0x96, 0x42, 0x0f, 0xd8, 0x95, 0x3b, 0x76, 0xa1,
+    0xec, 0xb0, 0xfd, 0x2a, 0x67, 0xc9, 0x84, 0x53, 0x1e, 0xeb, 0xa6, 0x71,
+    0x3c, 0x92, 0xdf, 0x08, 0x45, 0x19, 0x54, 0x83, 0xce, 0x60, 0x2d, 0xfa,
+    0xb7, 0x5d, 0x10, 0xc7, 0x8a, 0x24, 0x69, 0xbe, 0xf3, 0xaf, 0xe2, 0x35,
+    0x78, 0xd6, 0x9b, 0x4c, 0x01, 0xf4, 0xb9, 0x6e, 0x23, 0x8d, 0xc0, 0x17,
+    0x5a, 0x06, 0x4b, 0x9c, 0xd1, 0x7f, 0x32, 0xe5, 0xa8};
 
 volatile size_t sent_bytes = 0, received_bytes = 0;
 
@@ -116,65 +118,56 @@ float calculateStep(float startangle, float endangle, int num_distances) {
   // Calculate step size
   return angular_diff / (num_distances - 1);
 }
-uint8_t CalCRC8(volatile uint8_t *p, uint8_t len)
-{
- uint8_t crc = 0;
- 
-
-  for (int i = 0; i < len; i++){
-  crc = CrcTable[(crc ^ *(p++)) & 0xff];
+uint8_t CalCRC8(uint8_t* p, uint8_t lenWithoutCRCCheckValue) {
+  uint8_t crc = 0xD8;                                       // pre-calculated header and verlen values (crc = crcTable[(crc ^ 0x54) & 0xff];crc = crcTable[(crc ^ 0x2C) & 0xff];)
+  for (uint16_t i = 0; i < lenWithoutCRCCheckValue; i++) {  // ignores the last value of the p array (which contains the crc check value)
+    crc = CrcTable[(crc ^ *p++) & 0xff];
   }
   return crc;
 }
 
 void read_lidar() {
-  uint8_t data_length, cs, calculated_crc;
+  uint8_t  cs, calculated_crc;
   uint16_t speed, startangle, endangle, timestamp;
-  uint16_t buffer[48];  // Buffer to hold data (adjust size based on your need)
+  uint16_t buffer[45];  // Buffer to hold data (adjust size based on your need)
   float endangle_f, startangle_f;
-  uint8_t byte = Serial2.read();  // Read first byte
-  
-  if(bytes_read == 0){
-    if (byte == HEADER) {
-      // Read the data length byte
-      data[bytes_read++] = byte;
-    }
-    else
-    {
-      bytes_read = 0;
-      return;
-    }
-  }
-  else if(bytes_read==1){
-    if(byte == 0x2c){
-      data[bytes_read++] = byte; 
-      data_length = byte;
-    }
-    else{
-      bytes_read = 0;
-    }
-  }
-  else if(bytes_read < 47) {
-    data[bytes_read++] = byte; 
-    return;
-  }
-  else if(bytes_read == 47){
-    cs = data[data_length-1];
+  uint8_t data_length = 44;  // Expected payload length
+ 
 
-    bytes_read = 0;
-    // Calculate the CRC for the data (excluding the checksum byte)
-    calculated_crc = CalCRC8(data, data_length - 1);
+    uint8_t byte = Serial2.read();  // Read first byte
+    if (bytes_read == 0) {
+        if (byte == HEADER) {
+            bytes_read++;
+        } else {
+            bytes_read = 0;
+            return;
+        }
+    } else if (bytes_read == 1) {
+        if (byte == 0x2C) {  // Data length is 44
+            bytes_read++;
+        } else {
+            bytes_read = 0;
+            return;
+        }
+    } else if (bytes_read < data_length + 2) {
+        data[bytes_read - 2] = byte;  // Store the payload
+        bytes_read++;
+        return;
+    } else if (bytes_read == data_length + 2) {
+        cs = byte;  // CRC byte
+        bytes_read = 0;
 
-    // Compare the calculated CRC with the received checksum
-    if (calculated_crc != cs) {
-      //Serial.println("CRC mismatch!");
-      buffer_ready = 0;
-      
-      return; // Skip frame if CRC mismatch
+        // Calculate the CRC for the payload
+        calculated_crc = CalCRC8(data, data_length);
+
+        // Compare the calculated CRC with the received CRC
+        if (calculated_crc != cs) {
+            Serial.println("CRC mismatch!");
+            return;  // Skip frame if CRC mismatch
+        }
+        Serial.println("CRC correct");
+        //OBS lägg funktion här process_frame flytta koden nedan in
     }
-    buffer_ready = 1;
-  }  
-
     for (int i = 0; i < data_length; i++) {
       //Serial.printf("byte:%d %x\n", i,data[i]);
     }
@@ -231,35 +224,35 @@ void read_lidar() {
     }
 
     double step = calculateStep(startangle_f, endangle_f, num_distances);
-    buff_index_right = 0;
-    buff_index_left = 0;
-    buff_index_straight = 0;
     for (int i = 0; i < num_distances; i++) {
       if(buffer[i] == 0){
         continue;
       }
       angle = startangle_f + step*i;
-      float effective_distance = calculate_effective_distance(buffer[i], angle);
+      float effective_distance = calculate_effective_distance(buffer[i]);
       //Serial.printf("startangle %d endangle %d num %d\n",startangle, endangle, num_distances);
       //Serial.printf("angle: %f distance: %d \n", angle, buffer[i]);
       if ((angle > 350 && angle <= 360) || (angle >= 0 && angle < 10)){
-        buff_straight[buff_index_straight++] = effective_distance;
-        /*if(buff_index_straight == BUFFER_SIZE){
+        buff_straight[buff_index_straight++] = buffer[i];
+        buffer_straight_ready = 1;
+        if(buff_index_straight == BUFFER_SIZE){
           buff_index_straight = 0;
-        }*/
+        }
       }
       else if(15 < angle && angle < 105){
         buff_right[buff_index_right++] = effective_distance;
-        /*if(buff_index_right == BUFFER_SIZE){
+        if(buff_index_right == BUFFER_SIZE){
           buff_index_right = 0;
-        }*/
+          buffer_right_ready = 1;
+        }
         //Serial.printf("angle: %f distance: %d Left turn turn \n ", angle, buffer[i]);
       }
       else if(245 < angle && angle < 345){
         buff_left[buff_index_left++] = effective_distance;
-        /*if(buff_index_left == BUFFER_SIZE){
+        if(buff_index_left == BUFFER_SIZE){
+          buffer_left_ready = 1;
           buff_index_left = 0;
-        }*/
+        }
         //Serial.printf("angle: %f distance: %d Right turn\n", angle, buffer[i]);
       }
 
@@ -298,11 +291,11 @@ void drive_motor(int speed, int direction, int pin1, int pin2) {
 
 void turn_left(int speed){
   drive_motor(speed, 0,PWM_A1,PWM_A2);
-  drive_motor(speed*0.6, 0,PWM_B1,PWM_B2);
+  drive_motor(speed*0.5, 0,PWM_B1,PWM_B2);
 }
 void turn_right(int speed){
   drive_motor(speed, 0,PWM_B1,PWM_B2);
-  drive_motor(speed*0.6, 0,PWM_A1,PWM_A2);
+  drive_motor(speed*0.5, 0,PWM_A1,PWM_A2);
 }
 void go_straight(int speed){
   drive_motor(speed, 0,PWM_A1,PWM_A2);
@@ -315,75 +308,81 @@ void go_backwards(int speed){
 
 // In the main loop, read the frame and process it
 void loop() {
-  /*if(currentTime >= Timer_read_IMU)
-  {
-    float roll = 0;
-    float pitch = 0;
-    read_angle(&roll, &pitch);
-    Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
-    Timer_read_IMU = millis() + 1000;
-  }*/
+  static float roll = 0;
+  static float pitch = 0;
+  read_angle(&roll, &pitch);
+  //Serial.printf("ROLL=%f,PITCH=%f\n", roll, pitch);
 
   read_lidar();
+  // if(pitch > 20){
+  //   go_straight(MAX_SPEED);
+  //   Serial.printf("We are going up\n");
+  // }
+  //else{
+    if(buffer_left_ready && buffer_right_ready){
+      //buffer_ready = 0;
+      buffer_left_ready = 0;
+      buffer_straight_ready = 0;
+      buffer_right_ready = 0;
 
-  if(buffer_ready){
-    buffer_ready = 0;
+      uint32_t sumleft = 0, sumright = 0, sumstraight = 0;
+      int valid_left = 0, valid_right = 0, valid_straight = 0;
 
-    uint32_t sumleft = 0;
-    uint32_t sumright = 0;
-    uint32_t sumstraight = 0;
-    for(uint32_t i = 0; i<BUFFER_SIZE; i++){
-      sumleft += buff_left[i];
-      sumright += buff_right[i];
-      sumstraight += buff_straight[i];
-    }
-    
-    uint32_t distance_left = sumleft / BUFFER_SIZE;
-    uint32_t distance_right = sumright / BUFFER_SIZE;
-    uint32_t distance_straight = sumstraight / BUFFER_SIZE;
-
-
-<<<<<<< HEAD
-    if(distance_straight < 2){
-      go_backwards(MAX_SPEED);
-      Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-    }
-    else if(distance_straight > 50){
-      go_straight(MAX_SPEED);
-      Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-      last_turn = 2;
-    }
-=======
->>>>>>> 5a162d6a0d73f720e2ce9a6f7046a1d62949ee40
-    if(abs((int32_t)(distance_left - distance_right)) >= THRESHOLD){
-      if(distance_left < distance_right){
-        turn_right(MAX_SPEED);
-        memset(buff_right, 0 , sizeof(buff_right));
-        Serial.printf("right turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-        last_turn = 0;
+      for (int i = 0; i < BUFFER_SIZE; i++) {
+        if (buff_left[i] != 0) {
+          sumleft += buff_left[i];
+          valid_left++;
+        }
+        if (buff_right[i] != 0) {
+          sumright += buff_right[i];
+          valid_right++;
+        }
+        if (buff_straight[i] != 0) {
+          sumstraight += buff_straight[i];
+          valid_straight++;
+        }
       }
-      else if(distance_left > distance_right){
-        turn_left(MAX_SPEED);
-        memset(buff_left, 0 , sizeof(buff_left));
-        Serial.printf("left turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-        last_turn = 1;
+
+      uint32_t distance_left = valid_left > 0 ? sumleft / valid_left : 0;
+      uint32_t distance_right = valid_right > 0 ? sumright / valid_right : 0;
+      uint32_t distance_straight = valid_straight > 0 ? sumstraight / valid_straight : 0;
+
+      memset(buff_left, 0, BUFFER_SIZE);
+      memset(buff_right, 0, BUFFER_SIZE);
+      memset(buff_straight, 0, BUFFER_SIZE);
+
+      if(distance_right < THRESHOLD || distance_left < THRESHOLD){
+        if(distance_left < distance_right){
+          turn_right(NORMAL_SPEED);
+          Serial.printf("RIGHT turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
+          last_turn = 0;
+        }
+        else if(distance_left > distance_right){
+          turn_left(NORMAL_SPEED);
+          Serial.printf("LEFT turn: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
+          last_turn = 1;
+        }
       }
+      // else if(distance_straight < 10){
+      //   go_backwards(NORMAL_SPEED);
+      //   memset(buff_straight, 0 , sizeof(buff_straight));
+      //   Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
+      // }
+      else if(distance_straight > 30){
+        if(pitch > 20){
+          go_straight(MAX_SPEED);
+          Serial.printf("We are going up\n");
+        }
+        else{
+          go_straight(NORMAL_SPEED);
+        }
+        Serial.printf("STRAIGHT: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
+        last_turn = 2;
+      }
+      
+      delay(400);
+      go_straight(0);
+      
     }
-    // else if(distance_straight < 10){
-    //   go_backwards(MAX_SPEED);
-    //   memset(buff_straight, 0 , sizeof(buff_straight));
-    //   Serial.printf("backwards: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-    // }
-    else if(distance_straight > 30){
-      go_straight(MAX_SPEED);
-      memset(buff_straight, 0 , sizeof(buff_straight));
-      Serial.printf("straight: left: %d right: %d straight: %d\n", distance_left, distance_right, distance_straight);
-      last_turn = 2;
-    }
-    
-    delay(400);
-    go_straight(0);
-    Serial.println("stop:");
-    delay(200);
-  }
+  //}
 }
